@@ -4,13 +4,19 @@ that method, type `help homework2.arithmetic`.
 '''
 
 def arithmetic(x, y):
-    """
-    Modify this code so that it performs one of four possible functions, 
-    as specified in the following table:
+  
+    if isinstance(y, str) and isinstance(x, str):
+        return x + y
+    
+    elif isinstance(y, str) and isinstance(x, float):
+        return str(x) + y
 
-                        isinstance(x,str)  isinstance(x,float)
-    isinstance(y,str)   return x+y         return str(x)+y
-    isinstance(y,float) return x*int(y)    return x*y
-    """
-    return 0
+    elif isinstance(y, float) and isinstance(x, str):
+        return x * int(y)
+
+    elif isinstance(y, float) and isinstance(x, float):
+        return x * y
+
+    else:
+        raise TypeError("Unsupported combination of types for x and y")
 
