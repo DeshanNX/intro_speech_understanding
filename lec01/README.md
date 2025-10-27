@@ -1,4 +1,4 @@
-# Lecture 1
+git ferch # Lecture 1
 
 Here's the code for lecture 1.  Fetch and merge this to your laptop:
 ```
