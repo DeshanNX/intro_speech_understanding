@@ -1,53 +1,92 @@
 import numpy as np
-import torch, torch.nn
+import torch
+import torch.nn as nn
+import librosa
+
 
 def get_features(waveform, Fs):
-    '''
-    Get features from a waveform.
-    @params:
-    waveform (numpy array) - the waveform
-    Fs (scalar) - sampling frequency.
+    # ===== Pre-emphasis =====
+    waveform = np.append(waveform[0], waveform[1:] - 0.97 * waveform[:-1])
 
-    @return:
-    features (NFRAMES,NFEATS) - numpy array of feature vectors:
-        Pre-emphasize the signal, then compute the spectrogram with a 4ms frame length and 2ms step,
-        then keep only the low-frequency half (the non-aliased half).
-    labels (NFRAMES) - numpy array of labels (integers):
-        Calculate VAD with a 25ms window and 10ms skip. Find start time and end time of each segment.
-        Then give every non-silent segment a different label.  Repeat each label five times.
-    
-    '''
-    raise RuntimeError("You need to change this part")
+    # ===== VAD (25 ms window, 10 ms step) =====
+    vad_len = int(0.025 * Fs)
+    vad_step = int(0.010 * Fs)
+
+    vad_frames = librosa.util.frame(
+        waveform, frame_length=vad_len, hop_length=vad_step
+    )
+
+    energy = np.sum(vad_frames ** 2, axis=0)
+    threshold = 0.1 * np.max(energy)
+    speech = energy > threshold
+
+    labels = []
+    current_label = 0
+
+    for s in speech:
+        if s:
+            labels.extend([current_label] * 5)
+            current_label += 1
+        else:
+            labels.extend([0] * 5)
+
+    labels = np.array(labels)
+    labels = np.clip(labels, 0, 5)
+
+    # ===== Spectrogram (4 ms frame, 2 ms step) =====
+    frame_len = int(0.004 * Fs)
+    frame_step = int(0.002 * Fs)
+
+    frames = librosa.util.frame(
+        waveform, frame_length=frame_len, hop_length=frame_step
+    )
+
+    spectrum = np.abs(np.fft.rfft(frames, axis=0)).T
+
+    # Keep only low-frequency half
+    features = spectrum[:, :spectrum.shape[1] // 2]
+
+    # ===== Align feature and label lengths =====
+    N = min(features.shape[0], len(labels))
+    features = features[:N]
+    labels = labels[:N]
+
+    return features, labels
+
 
 def train_neuralnet(features, labels, iterations):
-    '''
-    @param:
-    features (NFRAMES,NFEATS) - numpy array of feature vectors:
-        Pre-emphasize the signal, then compute the spectrogram with a 4ms frame length and 2ms step.
-    labels (NFRAMES) - numpy array of labels (integers):
-        Calculate VAD with a 25ms window and 10ms skip. Find start time and end time of each segment.
-        Then give every non-silent segment a different label.  Repeat each label five times.
-    iterations (scalar) - number of iterations of training
+    X = torch.tensor(features, dtype=torch.float32)
+    y = torch.tensor(labels, dtype=torch.long)
 
-    @return:
-    model - a neural net model created in pytorch, and trained using the provided data
-    lossvalues (numpy array, length=iterations) - the loss value achieved on each iteration of training
+    NFEATS = X.shape[1]
+    NLABELS = int(max(labels)) + 1
 
-    The model should be Sequential(LayerNorm, Linear), 
-    input dimension = NFEATS = number of columns in "features",
-    output dimension = 1 + max(labels)
+    model = nn.Sequential(
+        nn.LayerNorm(NFEATS),
+        nn.Linear(NFEATS, NLABELS)
+    )
 
-    The lossvalues should be computed using a CrossEntropy loss.
-    '''
-    raise RuntimeError("You need to change this part")
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+
+    lossvalues = np.zeros(iterations)
+
+    for i in range(iterations):
+        optimizer.zero_grad()
+        outputs = model(X)
+        loss = criterion(outputs, y)
+        loss.backward()
+        optimizer.step()
+        lossvalues[i] = loss.item()
+
+    return model, lossvalues
+
 
 def test_neuralnet(model, features):
-    '''
-    @param:
-    model - a neural net model created in pytorch, and trained
-    features (NFRAMES, NFEATS) - numpy array
-    @return:
-    probabilities (NFRAMES, NLABELS) - model output, transformed by softmax, detach().numpy().
-    '''
-    raise RuntimeError("You need to change this part")
+    X = torch.tensor(features, dtype=torch.float32)
 
+    with torch.no_grad():
+        outputs = model(X)
+        probabilities = torch.softmax(outputs, dim=1)
+
+    return probabilities.detach().numpy()
